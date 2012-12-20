@@ -68,33 +68,75 @@ module XMLSecurity
       inclusive_namespaces = extract_inclusive_namespaces
 
       document = Nokogiri.parse(self.to_s)
-
       # store and remove signature node
+
+      Java::OrgApacheXmlSecurity::Init.init()
+
+      dfactory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+      dfactory.setNamespaceAware(true)
+      dfactory.setValidating(true)
+      documentBuilder = dfactory.newDocumentBuilder()
+      documentBuilder.setErrorHandler(org.apache.xml.security.utils.IgnoreAllErrorHandler().new)
+      doc = documentBuilder.parse(java.io.ByteArrayInputStream.new(RubyString.string_to_bytes(self.to_s)))
+      xpf = javax.xml.xpath.XPathFactory.newInstance()
+      xpath = xpf.newXPath()
+      xpath.setNamespaceContext(org.apache.xml.security.samples.DSNamespaceContext().new)
+      expression = "//ds:SignedInfo[1]"
+      signedInfo = xpath.evaluate(expression, doc, javax.xml.xpath.XPathConstants::NODE)
+
+
       self.sig_element ||= begin
         element = REXML::XPath.first(self, "//ds:Signature", {"ds"=>DSIG})
         element.remove
       end
 
+      algo =  REXML::XPath.first(sig_element, '//ds:CanonicalizationMethod', 'ds' => DSIG).attribute('Algorithm').value
+      if signedInfo
+        cannon = Java::OrgApacheXmlSecurityC14n::Canonicalizer.getInstance(algo)
+        canon_string = RubyString.bytes_to_string cannon.canonicalizeSubtree(signedInfo)
+      else
+        canon_string = ""
+      end
+
+      dfactory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+      dfactory.setNamespaceAware(true)
+      dfactory.setValidating(true)
+      documentBuilder = dfactory.newDocumentBuilder()
+      documentBuilder.setErrorHandler(org.apache.xml.security.utils.IgnoreAllErrorHandler().new)
+      doc = documentBuilder.parse(java.io.ByteArrayInputStream.new(RubyString.string_to_bytes(self.to_s)))
 
       # verify signature
       signed_info_element     = REXML::XPath.first(sig_element, "//ds:SignedInfo", {"ds"=>DSIG})
       self.noko_sig_element ||= document.at_xpath('//ds:Signature', 'ds' => DSIG)
       noko_signed_info_element = noko_sig_element.at_xpath('./ds:SignedInfo', 'ds' => DSIG)
+
       canon_algorithm = canon_algorithm REXML::XPath.first(sig_element, '//ds:CanonicalizationMethod', 'ds' => DSIG)
-      canon_string = noko_signed_info_element.canonicalize(canon_algorithm)
+      #canon_string = noko_signed_info_element.canonicalize(canon_algorithm)
       noko_sig_element.remove
 
       # check digests
       REXML::XPath.each(sig_element, "//ds:Reference", {"ds"=>DSIG}) do |ref|
         uri                           = ref.attributes.get_attribute("URI").value
-
         hashed_element                = document.at_xpath("//*[@ID='#{uri[1..-1]}']")
         canon_algorithm               = canon_algorithm REXML::XPath.first(ref, '//ds:CanonicalizationMethod', 'ds' => DSIG)
+
+        algo = REXML::XPath.first(ref, '//ds:CanonicalizationMethod', 'ds' => DSIG).attribute('Algorithm').value
+
+
+      expression = "//*[@ID='#{uri[1..-1]}']"
+      signedInfo = xpath.evaluate(expression, doc, javax.xml.xpath.XPathConstants::NODE)
+      if signedInfo
+        cannon = Java::OrgApacheXmlSecurityC14n::Canonicalizer.getInstance(algo)
+        new_canon_string = RubyString.bytes_to_string cannon.canonicalizeSubtree(signedInfo)
+      else
+        new_canon_string = ""
+      end
+
         canon_hashed_element          = hashed_element.canonicalize(canon_algorithm, inclusive_namespaces).gsub('&','&amp;')
-
+        canon_hashed_element = new_canon_string
         digest_algorithm              = algorithm(REXML::XPath.first(ref, "//ds:DigestMethod"))
-
         hash                          = digest_algorithm.digest(canon_hashed_element)
+
         digest_value                  = Base64.decode64(REXML::XPath.first(ref, "//ds:DigestValue", {"ds"=>DSIG}).text)
 
         unless digests_match?(hash, digest_value)

@@ -1,4 +1,4 @@
-# Ruby SAML [![Build Status](https://secure.travis-ci.org/onelogin/ruby-saml.png)](http://travis-ci.org/onelogin/ruby-saml)
+# Ruby SAML  - (do not use - nasty hacks to make this work with jruby *the wrong way*)
 
 The Ruby SAML library is for implementing the client side of a SAML authorization, i.e. it provides a means for managing authorization initialization and confirmation requests from identity providers.
 
